@@ -1,0 +1,78 @@
+{
+  "id": "baby",
+  "displayName": "宝宝",
+  "description": "内置 Q 版动画角色",
+  "frameWidth": 192,
+  "frameHeight": 208,
+  "gridColumns": 8,
+  "gridRows": 9,
+  "spritesheetPath": "spritesheet.png",
+  "x-anchor": "bottom-center",
+  "x-actions": {
+    "idle": {
+      "dir": "frames/idle",
+      "fps": 5,
+      "loop": true
+    },
+    "waiting": {
+      "dir": "frames/waiting",
+      "fps": 5,
+      "loop": true
+    },
+    "running": {
+      "dir": "frames/running",
+      "fps": 8,
+      "loop": true
+    },
+    "running-left": {
+      "dir": "frames/running-left",
+      "fps": 10,
+      "loop": true
+    },
+    "running-right": {
+      "dir": "frames/running-right",
+      "fps": 10,
+      "loop": true
+    },
+    "review": {
+      "dir": "frames/review",
+      "fps": 5,
+      "loop": true
+    },
+    "failed": {
+      "dir": "frames/failed",
+      "fps": 6,
+      "loop": true
+    },
+    "waving": {
+      "dir": "frames/waving",
+      "fps": 7,
+      "loop": false
+    },
+    "jumping": {
+      "dir": "frames/jumping",
+      "fps": 10,
+      "loop": false
+    },
+    "look-up": {
+      "dir": "frames/look-up",
+      "fps": 1,
+      "loop": true
+    },
+    "look-down": {
+      "dir": "frames/look-down",
+      "fps": 1,
+      "loop": true
+    },
+    "look-left": {
+      "dir": "frames/look-left",
+      "fps": 1,
+      "loop": true
+    },
+    "look-right": {
+      "dir": "frames/look-right",
+      "fps": 1,
+      "loop": true
+    }
+  }
+}

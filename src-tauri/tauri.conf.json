@@ -1,0 +1,80 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DeskBuddy",
+  "version": "0.6.0",
+  "identifier": "com.deskbuddy.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "url": "index.html",
+        "title": "桌伴",
+        "width": 352,
+        "height": 216,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false,
+        "focusable": false,
+        "acceptFirstMouse": true
+      },
+      {
+        "label": "settings",
+        "url": "settings.html",
+        "title": "桌伴 · 设置",
+        "width": 640,
+        "height": 620,
+        "visible": false,
+        "resizable": false,
+        "maximizable": false,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/.config/deskbuddy/pets/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../assets/pets/baby/": "pets/baby/"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVENzlGNzRBODZDOUQxRjMKUldUejBjbUdTdmQ1N1oxVFBWbUtiaDdiNldzMXpiZFFSck9oWUs5dHdOOWhSRXB5ZEdsQzN1TmYK",
+      "endpoints": [
+        "https://github.com/quegaiwoniu/deskbuddy/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

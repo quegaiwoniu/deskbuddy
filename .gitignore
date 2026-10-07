@@ -1,0 +1,19 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+.DS_Store
+
+# 本地素材与工具状态，不进入公开仓库
+.gstack/
+
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.key
+release/
+
+__pycache__/
+*.pyc

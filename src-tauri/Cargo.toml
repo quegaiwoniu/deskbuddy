@@ -1,0 +1,32 @@
+[package]
+name = "deskbuddy"
+version = "0.6.0"
+description = "桌伴——感知编码事件的桌面伙伴"
+edition = "2021"
+
+[lib]
+name = "deskbuddy_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "macos-private-api"] }
+tauri-plugin-window-state = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tiny_http = "0.12"
+tauri-plugin-updater = "2.13.1"
+tauri-plugin-process = "2.4.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+objc2-app-kit = { version = "0.2", features = ["NSWindow", "NSResponder", "NSEvent", "NSPanel", "NSApplication", "NSWorkspace", "NSRunningApplication", "NSScreen"] }
+objc2-foundation = { version = "0.2", features = ["NSGeometry"] }
+
+[profile.release]
+strip = true
+lto = true

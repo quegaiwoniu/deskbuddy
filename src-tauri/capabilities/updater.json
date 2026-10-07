@@ -1,0 +1,11 @@
+{
+  "identifier": "settings-updater",
+  "description": "设置页检查、安装更新及重启",
+  "windows": [
+    "settings"
+  ],
+  "permissions": [
+    "updater:default",
+    "process:allow-restart"
+  ]
+}

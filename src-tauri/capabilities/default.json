@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "description": "主窗口默认能力",
+  "windows": [
+    "main",
+    "settings"
+  ],
+  "permissions": [
+    "core:default",
+    "window-state:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save"
+  ]
+}

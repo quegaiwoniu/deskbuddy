@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>桌伴 · 设置</title>
+    <style>
+      :root { color-scheme: light; font: 13px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; color: #232326; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #f7f7f8; user-select: none; }
+      button, input, select, textarea { font: inherit; }
+      button { cursor: pointer; border: 1px solid #d7d7dc; background: #fff; color: #25252a; border-radius: 8px; min-height: 30px; padding: 4px 11px; white-space: nowrap; }
+      button:hover { background: #f2f2f4; }
+      button:disabled { opacity: .5; cursor: default; }
+      button.primary { background: #25252a; color: white; border-color: #25252a; }
+      button.primary:hover { background: #3b3b40; }
+      button.danger { color: #b4232c; border-color: #edc2c5; }
+      button.danger:hover { background: #fff1f2; }
+      button.ghost { border-color: transparent; background: transparent; }
+      button.ghost:hover { background: #ececef; }
+      :is(button, input, textarea, select):focus-visible { outline: 2px solid #3979d5; outline-offset: 2px; }
+      input[type="text"], textarea, select { border: 1px solid #d7d7dc; border-radius: 8px; background: white; color: inherit; padding: 6px 9px; }
+      input[type="text"], textarea { width: 100%; }
+      textarea { min-height: 76px; resize: vertical; }
+      input[type="range"] { width: 160px; accent-color: #3a73c6; }
+      input[type="checkbox"] { accent-color: #3a73c6; width: 16px; height: 16px; }
+      .shell { display: grid; grid-template-columns: 152px minmax(0, 1fr); height: 100vh; overflow: hidden; }
+      .sidebar { background: #ededf0; border-right: 1px solid #dddddf; padding: 22px 10px; }
+      .brand { font-weight: 700; font-size: 16px; padding: 0 12px 20px; letter-spacing: -.2px; }
+      .nav { display: flex; flex-direction: column; gap: 2px; }
+      .nav button { width: 100%; border: 0; background: transparent; text-align: left; min-height: 35px; padding: 7px 12px; font-weight: 500; }
+      .nav button:hover { background: #e2e2e6; }
+      .nav button[aria-current="page"] { background: #dcdce1; color: #17171a; font-weight: 650; }
+      .content { min-width: 0; height: 100vh; overflow-y: auto; padding: 24px 28px 34px; }
+      .content[aria-busy="true"] button { pointer-events: none; opacity: .55; }
+      .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+      h1 { font-size: 22px; line-height: 1.2; margin: 0; letter-spacing: -.5px; }
+      h2 { font-size: 12px; color: #73737b; font-weight: 650; margin: 22px 0 8px; }
+      .panel { background: white; border: 1px solid #e1e1e5; border-radius: 12px; padding: 4px 16px; }
+      .setting-row, .pet-row { display: flex; align-items: center; gap: 12px; min-height: 62px; padding: 10px 0; border-bottom: 1px solid #ededf0; }
+      .setting-row:last-child, .pet-row:last-child { border-bottom: none; }
+      .setting-copy, .pet-copy { flex: 1; min-width: 0; }
+      .setting-title, .pet-name { font-weight: 570; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pet-name { display: inline-block; max-width: 100%; vertical-align: middle; }
+      .sub, .status, .muted { font-size: 11px; color: #797981; }
+      .sub { margin-top: 3px; }
+      .status { min-height: 16px; }
+      .status.error, .error { color: #b4232c; }
+      .controls, .pet-actions, .inline-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+      .value { color: #63636b; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: #bfc0c5; flex: none; }
+      .dot.active { background: #2fba66; }
+      .badge { display: inline-block; font-size: 11px; color: #65656d; background: #f0f0f2; padding: 2px 6px; border-radius: 5px; margin-left: 7px; }
+      .pet-row { position: relative; }
+      .pet-row .more { width: 30px; padding: 0; font-size: 18px; line-height: 1; }
+      .popover { position: absolute; right: 0; top: 46px; z-index: 4; background: white; border: 1px solid #dddde2; box-shadow: 0 9px 24px #0002; border-radius: 9px; padding: 4px; min-width: 155px; }
+      .popover button { display: block; width: 100%; text-align: left; border: 0; }
+      .confirm { background: #fff7f7; border: 1px solid #efd9da; border-radius: 10px; padding: 12px; margin: 4px 0 12px; }
+      .confirm strong { display: block; margin-bottom: 3px; }
+      .confirm .inline-actions { justify-content: flex-end; margin-top: 10px; }
+      .field { display: block; font-weight: 570; margin: 14px 0 5px; }
+      .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 18px 0 12px; }
+      .choice { width: 100%; text-align: left; display: block; padding: 12px; margin: 8px 0; }
+      .choice strong { display: block; }
+      .choice .sub { white-space: normal; }
+      .release-notes { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
+      .update-error { overflow-wrap: anywhere; }
+      progress { width: 100%; accent-color: #3a73c6; }
+      .step { color: #686871; font-size: 12px; margin: 10px 0; }
+      .empty { padding: 22px 8px; text-align: center; color: #797981; }
+      .advanced { margin-top: 16px; }
+      .advanced summary { cursor: pointer; color: #65656d; }
+      @media (max-width: 560px) { .shell { grid-template-columns: 118px minmax(0,1fr); } .content { padding: 20px 16px; } .sidebar { padding: 18px 7px; } input[type="range"] { width: 100px; } }
+    </style>
+  </head>
+  <body>
+    <div class="shell"><aside class="sidebar"><div class="brand">桌伴</div><nav class="nav" id="nav" aria-label="设置分类"></nav></aside><main class="content" id="app"></main></div>
+    <script>
+      function beacon(kind, detail) { try { window.__TAURI__?.core?.invoke?.("fe_log", { kind, detail: String(detail).slice(0, 500) }); } catch {} }
+      window.addEventListener("error", e => beacon("settings-error", e.message));
+      window.addEventListener("unhandledrejection", e => beacon("settings-rejection", String(e.reason)));
+    </script>
+    <script type="module" src="/src/settings.ts"></script>
+  </body>
+</html>

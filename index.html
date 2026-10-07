@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>桌伴</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        overflow: hidden;
+        user-select: none;
+        -webkit-user-select: none;
+        cursor: grab;
+      }
+      body:active {
+        cursor: grabbing;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      // 前端黑匣子：优先走 Tauri IPC（tauri:// 页面向 http 发请求会被混合内容策略拦截）
+      function beacon(kind, detail) {
+        const d = String(detail).slice(0, 500);
+        try {
+          window.__TAURI__?.core?.invoke?.("fe_log", { kind, detail: d });
+          return;
+        } catch {}
+        fetch("http://127.0.0.1:17321/fe-log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind, detail: d }),
+        }).catch(() => {});
+      }
+      beacon("boot", "index.html 脚本执行");
+      window.addEventListener("error", (e) =>
+        beacon("error", `${e.message} @ ${(e.filename || "")}:${e.lineno}:${e.colno}`),
+      );
+      window.addEventListener("unhandledrejection", (e) =>
+        beacon("rejection", e.reason instanceof Error ? e.reason.stack || e.reason : String(e.reason)),
+      );
+      window.__dbReady = () => beacon("ready", "ok");
+      window.__beacon = beacon;
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
