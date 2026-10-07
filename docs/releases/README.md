@@ -2,6 +2,8 @@
 
 桌伴通过公开 GitHub Releases 提供更新。设置 → 关于会检查 `latest.json`，验证签名后下载并安装 macOS 更新包；安装完成后点击“重启使用新版”。网络错误不会被当成“已是最新版”。
 
+公开仓库提供 [自动发布工作流模板](release-workflow.yml.example)。当前版本由维护者在本地签名并发布；启用自动发布前，将模板复制为 `.github/workflows/release.yml`，并完成下面的密钥配置。上传工作流的 GitHub 凭据需要 Workflows 写入权限。
+
 ## 维护者首次配置
 
 1. 使用 Tauri CLI 的 `signer generate` 生成更新签名密钥，私钥保存在源码目录之外。
@@ -15,7 +17,7 @@
 
 1. 同步修改 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 和 `src-tauri/tauri.conf.json` 中的应用版本。
 2. 创建 `docs/releases/v<版本>.md` 更新说明，完成测试并提交。
-3. 推送对应 `v<版本>` 标签。Release 工作流会测试、构建和签名，再上传 DMG、`.app.tar.gz`、`.sig` 与 `latest.json`；所有文件上传完成后才公开 Release。
+3. 自动发布工作流已启用并配置密钥后，推送对应 `v<版本>` 标签。Release 工作流会测试、构建和签名，再上传 DMG、`.app.tar.gz`、`.sig` 与 `latest.json`；所有文件上传完成后才公开 Release。
 4. 检查 Release 工作流结果，并用上一版本实际验证检查、下载、安装和重启。
 
 已存在的 Release 不会被自动覆盖。工作流失败后若留下草稿，先检查并处理草稿，再重试发布。
