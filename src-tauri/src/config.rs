@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::RwLock;
 use std::time::Duration;
 
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 #[serde(default)]
@@ -21,7 +21,7 @@ impl Default for CarouselConfig {
         let mut normal = std::collections::BTreeMap::new();
         normal.insert("waving".to_string(), 3);
         normal.insert("jumping".to_string(), 1);
-        normal.insert("crawl".to_string(), 2);
+        // crawl（自主爬动）会挪动窗口位置，默认不参与轮播；想要的话可在 behavior.json 手动加回权重
         let mut happy = std::collections::BTreeMap::new();
         happy.insert("jumping".to_string(), 3);
         happy.insert("waving".to_string(), 2);
@@ -123,8 +123,7 @@ pub static BEHAVIOR: RwLock<Option<BehaviorConfig>> = RwLock::new(None);
 pub static EVENTS: RwLock<Option<EventsConfig>> = RwLock::new(None);
 
 fn config_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".config/deskbuddy")
+    crate::paths::config_dir()
 }
 
 /// 首次运行时把默认配置落盘（已存在则不动）
@@ -239,10 +238,43 @@ pub fn scan_external_pets() -> Vec<(String, String)> {
     out
 }
 
+/// 内置宠物包扫描：打包资源目录 pets/<id>/pet.json（无预置角色时为空）
+pub fn scan_builtin_pets(app: &tauri::AppHandle) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let Some(dir) = app.path().resource_dir().ok().map(|r| r.join("pets")) else {
+        return out;
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else { return out };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.join("pet.json").is_file() {
+            continue;
+        }
+        let id = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let name = std::fs::read_to_string(path.join("pet.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("displayName").and_then(|d| d.as_str()).map(String::from))
+            .unwrap_or_else(|| id.clone());
+        out.push((id, name));
+    }
+    out.sort();
+    out
+}
+
 /// 宠物 id → 加载基址（builtin: 前缀=打包内资源；ext: 前缀=外部目录绝对路径）
-pub fn resolve_pet_base(id: &str) -> Option<String> {
-    if id == "baby" {
-        return Some("builtin:/pets/baby".into());
+pub fn resolve_pet_base(app: &tauri::AppHandle, id: &str) -> Option<String> {
+    if id.is_empty() {
+        return None;
+    }
+    if let Ok(res) = app.path().resource_dir() {
+        let p = res.join("pets").join(id).join("pet.json");
+        if p.is_file() {
+            return Some(format!("builtin:/pets/{id}"));
+        }
     }
     let dir = config_dir().join("pets").join(id);
     if dir.join("pet.json").is_file() {
@@ -252,14 +284,22 @@ pub fn resolve_pet_base(id: &str) -> Option<String> {
     }
 }
 
-/// 当前宠物（持久化于 current-pet 文件，缺省内置宝宝）
-pub fn current_pet_base() -> String {
+/// 当前宠物（持久化于 current-pet 文件；无保存或失效时回退第一个内置→第一个外部→空）
+pub fn current_pet_base(app: &tauri::AppHandle) -> String {
     let saved = std::fs::read_to_string(config_dir().join("current-pet")).unwrap_or_default();
     let id = saved.trim();
-    if id.is_empty() {
-        return "builtin:/pets/baby".into();
+    if !id.is_empty() {
+        if let Some(base) = resolve_pet_base(app, id) {
+            return base;
+        }
     }
-    resolve_pet_base(id).unwrap_or_else(|| "builtin:/pets/baby".into())
+    if let Some((id, _)) = scan_builtin_pets(app).into_iter().next() {
+        return format!("builtin:/pets/{id}");
+    }
+    if let Some((id, _)) = scan_external_pets().into_iter().next() {
+        return format!("ext:{}", config_dir().join("pets").join(id).display());
+    }
+    String::new()
 }
 
 pub fn set_current_pet(id: &str) {

@@ -6,7 +6,7 @@
 
 ## 功能
 
-- 透明置顶窗口、预置动画角色、拖动和托盘菜单。
+- 透明置顶窗口、自定义动画角色（可导入或制作，也可随安装包内置）、拖动和托盘菜单。
 - 展示会话名称与内容，区分处理中、完成、失败和等待确认。
 - 接入 Codex、ZCode 和 Git 事件。
 - 在「陪伴」设置中添加图片角色、导入角色包、创建动画草稿。
@@ -14,15 +14,14 @@
 
 ## 平台与安装
 
-当前已验证平台为 macOS Apple Silicon。Windows 尚未完成适配与验证。
-
-发布版本提供 DMG 安装包：打开后将 DeskBuddy 拖入「应用程序」目录。
+- **macOS（Apple Silicon）**：已验证。发布版本提供 DMG 安装包，打开后将 DeskBuddy 拖入「应用程序」目录。
+- **Windows（10/11 x64）**：透明置顶窗口、拖动（含多显示器）、悬停反应、视线跟随、提示音、文件管理器定位、NSIS 安装包与应用内更新均可用。配置与会话数据位于 `%USERPROFILE%\.config\deskbuddy\`；ZCode 会话真实名称依赖 PATH 中的 `sqlite3`（未安装时回退任务摘要）。
 
 详细操作与工具接入见 [使用手册](docs/使用手册.md)。
 
 ## 从源码运行
 
-需要 Node.js、npm、Rust，以及 macOS 的 Xcode Command Line Tools。
+需要 Node.js、npm、Rust（Windows 需 MSVC 工具链，macOS 需 Xcode Command Line Tools）。
 
 ```sh
 npm ci

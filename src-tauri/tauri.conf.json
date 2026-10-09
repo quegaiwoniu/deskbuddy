@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DeskBuddy",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "identifier": "com.deskbuddy.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -65,13 +65,13 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../assets/pets/baby/": "pets/baby/"
+      "../assets/pets/": "pets/"
     },
     "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVENzlGNzRBODZDOUQxRjMKUldUejBjbUdTdmQ1N1oxVFBWbUtiaDdiNldzMXpiZFFSck9oWUs5dHdOOWhSRXB5ZEdsQzN1TmYK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVGN0UyNzFCRkY0MTRGODIKUldTQ1QwSC9HeWQrWHhRUkxYR2plQk4vL0EySzlsV3M0SWpBd0N6bkJxcEZkdVU1VkQwZmlKZHoK",
       "endpoints": [
         "https://github.com/quegaiwoniu/deskbuddy/releases/latest/download/latest.json"
       ]

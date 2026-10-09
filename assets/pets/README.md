@@ -32,6 +32,16 @@
 动作名保留字（有内置语义）：idle / waiting / running / running-left / running-right /
 review / failed / waving / jumping。
 
-## 预置资源
+## 打包内置角色
 
-`baby/` 是随项目公开发布的默认动画角色，包含 `pet.json`、雪碧图和动作帧。不包含原始照片或制作过程记录。
+本目录不预置任何角色。要随应用打包内置角色，把角色包放成本目录的子目录（含 `pet.json`），
+构建时会整体复制到安装包资源里，运行时自动出现在托盘「切换角色」与设置页（标记「内置」）：
+
+```
+assets/pets/
+└── <角色id>/
+    ├── pet.json
+    └── frames/<动作>/00.png …
+```
+
+用户导入的外部角色不受影响，仍保存在 `~/.config/deskbuddy/pets/`。

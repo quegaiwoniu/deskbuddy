@@ -13,7 +13,7 @@
     "trigger_probability": 0.3,
     "weights": {
       "happy": { "jumping": 3, "waving": 2 },
-      "normal": { "waving": 3, "jumping": 1, "crawl": 2 },
+      "normal": { "waving": 3, "jumping": 1 },
       "sad": { "waving": 2, "jumping": 1 }
     }
   },
@@ -24,7 +24,7 @@
 }
 ```
 
-`weights` 设置不同心情下的动作权重。`joy` 不低于 70 时为 `happy`，不高于 40 时为 `sad`，其余为 `normal`。心情值会随时间回归中性。
+`weights` 设置不同心情下的动作权重。`joy` 不低于 70 时为 `happy`，不高于 40 时为 `sad`，其余为 `normal`。心情值会随时间回归中性。`crawl`（自主爬动）会挪动窗口位置，默认不参与轮播；在 `weights` 对应心情中加入 `"crawl": n` 可重新启用。
 
 ## events.json
 

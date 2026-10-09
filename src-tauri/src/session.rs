@@ -21,10 +21,7 @@ pub fn parse_names(text: &str) -> HashMap<String, String> {
     names
 }
 pub fn load_names() -> HashMap<String, String> {
-    let Some(home) = std::env::var_os("HOME") else {
-        return HashMap::new();
-    };
-    let path = std::path::PathBuf::from(home).join(".codex/session_index.jsonl");
+    let path = crate::paths::home_dir().join(".codex/session_index.jsonl");
     parse_names(&std::fs::read_to_string(path).unwrap_or_default())
 }
 /// ZCode 的真实标题位于本机 SQLite；只读查询失败时回退到任务摘要。
@@ -32,14 +29,13 @@ pub fn load_source_names(source: &str) -> HashMap<String, String> {
     if source != "zcode" {
         return load_names();
     }
-    let Some(home) = std::env::var_os("HOME") else {
-        return HashMap::new();
-    };
-    let path = std::path::PathBuf::from(home).join(".zcode/cli/db/db.sqlite");
+    let path = crate::paths::home_dir().join(".zcode/cli/db/db.sqlite");
     if !path.is_file() {
         return HashMap::new();
     }
-    let Ok(output) = std::process::Command::new("/usr/bin/sqlite3")
+    // macOS 自带 /usr/bin/sqlite3；Windows 无内置 CLI，尝试 PATH 中的 sqlite3
+    let exe = if cfg!(target_os = "windows") { "sqlite3" } else { "/usr/bin/sqlite3" };
+    let Ok(output) = std::process::Command::new(exe)
         .args(["-readonly", "-json"])
         .arg(path)
         .arg("SELECT id, title FROM session;")

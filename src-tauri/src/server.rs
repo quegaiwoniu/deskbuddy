@@ -17,8 +17,7 @@ fn chrono_like_now() -> String {
 }
 
 fn config_dir() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    std::path::PathBuf::from(home).join(".config/deskbuddy")
+    crate::paths::config_dir()
 }
 
 fn token() -> String {
@@ -169,7 +168,7 @@ pub fn start_event_server(app: tauri::AppHandle) {
                         let id = serde_json::from_str::<serde_json::Value>(&body)
                             .ok()
                             .and_then(|v| v.get("id").and_then(|i| i.as_str()).map(String::from));
-                        match id.as_deref().and_then(crate::config::resolve_pet_base) {
+                        match id.as_deref().map(|i| crate::config::resolve_pet_base(&app, i)).flatten() {
                             Some(base) => {
                                 if let Some(pid) = id.as_deref() {
                                     crate::config::set_current_pet(pid);
@@ -230,10 +229,9 @@ pub fn fe_log(kind: &str, detail: &str) {
     if kind == "ready" {
         FE_READY.store(true, std::sync::atomic::Ordering::SeqCst);
     }
-    let home = std::env::var("HOME").unwrap_or_default();
-    let dir = format!("{home}/.config/deskbuddy");
+    let dir = crate::paths::config_dir();
     let _ = std::fs::create_dir_all(&dir);
-    let path = format!("{dir}/fe.log");
+    let path = dir.join("fe.log");
     // 轮转：超过 100KB 重写（对齐 watcher.log；/fe-log 端点无鉴权，可被本地进程刷盘）
     if std::fs::metadata(&path).map(|m| m.len() > 100_000).unwrap_or(false) {
         let _ = std::fs::File::create(&path);
@@ -249,9 +247,7 @@ pub fn fe_log(kind: &str, detail: &str) {
 
 /// 悬停观察：非激活应用收不到鼠标移动事件，改为原生轮询全局鼠标位置做命中判断；
 /// 顺带每 ~1 秒做一次"看了就消"前台检查；并推送视线方向（四向，仅近距且变化时）
-#[cfg(target_os = "macos")]
 pub fn start_hover_observer(win: tauri::WebviewWindow) {
-    use objc2_app_kit::{NSEvent, NSWindow};
     std::thread::spawn(move || {
         let mut inside = false;
         let mut look = String::new();
@@ -263,40 +259,15 @@ pub fn start_hover_observer(win: tauri::WebviewWindow) {
             let (tx, rx) = std::sync::mpsc::channel::<(bool, String)>();
             let ok = win
                 .run_on_main_thread(move || {
-                    let (hit, dir) = (|| unsafe {
-                        let Ok(handle) = w.ns_window() else { return (false, String::new()) };
-                        let ns = &*(handle as *mut NSWindow);
-                        let loc = NSEvent::mouseLocation();
-                        let f = ns.frame();
-                        // 窗口加宽后：仅中心带（±95pt）算命中，两侧空白不触发悬停
-                        let cx = f.origin.x + f.size.width / 2.0;
-                        let inside = (loc.x - cx).abs() < 95.0
-                            && loc.y >= f.origin.y
-                            && loc.y <= f.origin.y + f.size.height;
-                        // 视线：鼠标在窗口中心 300pt 半径内 → 四向转头（NS 坐标 y 向上）
-                        let cx = f.origin.x + f.size.width / 2.0;
-                        let cy = f.origin.y + f.size.height / 2.0;
-                        let dx = loc.x - cx;
-                        let dy = loc.y - cy;
-                        let mut dir = String::new();
-                        if dx * dx + dy * dy < 300.0 * 300.0 {
-                            dir = if dx.abs() > dy.abs() * 1.2 {
-                                if dx > 0.0 { "right" } else { "left" }.to_string()
-                            } else if dy > 0.0 {
-                                "up".to_string()
-                            } else {
-                                "down".to_string()
-                            };
-                        }
-                        (inside, dir)
-                    })();
+                    let (hit, dir) = probe_hover(&w);
                     let _ = tx.send((hit, dir));
                     let n = tick_c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if n % 8 == 0 {
                         check_frontmost_clear(&w.app_handle().clone());
                     }
+                    // 持续重申跨空间/全屏/层级标志（曾被外部重置→窗口消失于其他空间）
+                    #[cfg(target_os = "macos")]
                     if n % 83 == 0 {
-                        // 持续重申跨空间/全屏/层级标志（曾被外部重置→窗口消失于其他空间）
                         crate::window_patch::patch_mac_window(&w);
                     }
                 })
@@ -318,6 +289,78 @@ pub fn start_hover_observer(win: tauri::WebviewWindow) {
             }
         }
     });
+}
+
+/// 全局鼠标相对主窗口的命中与视线方向（macOS：NS 坐标 y 向上）
+#[cfg(target_os = "macos")]
+fn probe_hover(win: &tauri::WebviewWindow) -> (bool, String) {
+    use objc2_app_kit::{NSEvent, NSWindow};
+    unsafe {
+        let Ok(handle) = win.ns_window() else { return (false, String::new()) };
+        let ns = &*(handle as *mut NSWindow);
+        let loc = NSEvent::mouseLocation();
+        let f = ns.frame();
+        // 窗口加宽后：仅中心带（±95pt）算命中，两侧空白不触发悬停
+        let cx = f.origin.x + f.size.width / 2.0;
+        let inside = (loc.x - cx).abs() < 95.0
+            && loc.y >= f.origin.y
+            && loc.y <= f.origin.y + f.size.height;
+        // 视线：鼠标在窗口中心 300pt 半径内 → 四向转头（NS 坐标 y 向上）
+        let cy = f.origin.y + f.size.height / 2.0;
+        let dx = loc.x - cx;
+        let dy = loc.y - cy;
+        let mut dir = String::new();
+        if dx * dx + dy * dy < 300.0 * 300.0 {
+            dir = if dx.abs() > dy.abs() * 1.2 {
+                if dx > 0.0 { "right" } else { "left" }.to_string()
+            } else if dy > 0.0 {
+                "up".to_string()
+            } else {
+                "down".to_string()
+            };
+        }
+        (inside, dir)
+    }
+}
+
+/// 全局鼠标相对主窗口的命中与视线方向（Windows：物理像素，y 向下）
+#[cfg(target_os = "windows")]
+fn probe_hover(win: &tauri::WebviewWindow) -> (bool, String) {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let (Ok(pos), Ok(size)) = (win.outer_position(), win.outer_size()) else {
+        return (false, String::new());
+    };
+    let mut point = POINT { x: 0, y: 0 };
+    if unsafe { GetCursorPos(&mut point) } == 0 {
+        return (false, String::new());
+    }
+    let scale = win.scale_factor().unwrap_or(1.0) as f64;
+    let (w, h) = (size.width as f64, size.height as f64);
+    let (mx, my) = (point.x as f64, point.y as f64);
+    // 仅中心带（±95pt×scale）算命中，两侧空白不触发悬停
+    let cx = pos.x as f64 + w / 2.0;
+    let cy = pos.y as f64 + h / 2.0;
+    let inside = (mx - cx).abs() < 95.0 * scale && my >= pos.y as f64 && my <= pos.y as f64 + h;
+    // 视线：鼠标在窗口中心 300pt×scale 半径内 → 四向转头（屏幕坐标 y 向下）
+    let (dx, dy) = (mx - cx, my - cy);
+    let radius = 300.0 * scale;
+    let mut dir = String::new();
+    if dx * dx + dy * dy < radius * radius {
+        dir = if dx.abs() > dy.abs() * 1.2 {
+            if dx > 0.0 { "right" } else { "left" }.to_string()
+        } else if dy > 0.0 {
+            "down".to_string()
+        } else {
+            "up".to_string()
+        };
+    }
+    (inside, dir)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn probe_hover(_win: &tauri::WebviewWindow) -> (bool, String) {
+    (false, String::new())
 }
 
 #[cfg(test)]

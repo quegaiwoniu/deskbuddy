@@ -22,7 +22,7 @@ let behavior: Behavior = {
     trigger_probability: 0.3,
     weights: {
       happy: { jumping: 3, waving: 2 },
-      normal: { waving: 3, jumping: 1, crawl: 2 },
+      normal: { waving: 3, jumping: 1 },
       sad: { waving: 2, jumping: 1 },
     },
   },
@@ -68,16 +68,18 @@ function weightedPick(weights: Record<string, number>): string {
 }
 
 async function main() {
-  let pet!: PetJson;
-  let actions!: Record<string, ActionDef>;
-  let frames!: Record<string, Texture[]>;
+  // 无角色启动时保持空表：play/加载各处判空跳过，不崩溃不重载
+  let pet: PetJson = { displayName: "" };
+  let actions: Record<string, ActionDef> = {};
+  let frames: Record<string, Texture[]> = {};
+  let sprite: AnimatedSprite | null = null;
 
   // 宠物基址 → 文件加载。全部走 IPC data URL：
   // asset:// 外部图片会使 WebGL 画布污染（texImage2D 抛 SecurityError → 每帧渲染失败）
   const fileUrl = async (base: string, rel: string): Promise<string> => {
     const relPath = base.startsWith("builtin:")
       ? base.slice("builtin:".length) + "/" + rel
-      : "pets/" + base.slice("ext:".length).split("/").pop() + "/" + rel;
+      : "pets/" + base.slice("ext:".length).split(/[\\/]/).pop() + "/" + rel;
     return await invoke<string>("read_pet_file", { rel: relPath.replace(/^\/+/, "") });
   };
 
@@ -130,10 +132,9 @@ async function main() {
         (window as any).__beacon?.("pet-partial", `${base} 缺动作: ${failed.join(",")}`);
       }
       if (!frames.idle) {
-        // idle 都没了：回退内置宝宝，绝不黑屏
-        (window as any).__beacon?.("pet-fallback", `${base} 无 idle，回退内置`);
-        if (base !== "builtin:/pets/baby") return loadPet("builtin:/pets/baby");
-        throw new Error("内置角色包损坏：无 idle 帧");
+        // idle 是唯一必需动作；缺了视为角色包无效（不再回退预置角色）
+        (window as any).__beacon?.("pet-invalid", `${base} 缺 idle 动作`);
+        throw new Error(`角色包缺少 idle 动作: ${base}`);
       }
     } else if (pet.spritesheetPath && pet.gridColumns) {
       // 兼容：Petdex 雪碧图按网格切片（行序取 x-rowOrder 或默认）
@@ -169,9 +170,11 @@ async function main() {
       throw new Error("pet.json 缺 x-actions 且缺 spritesheetPath");
     }
   }
-  // 启动加载上次选中的宠物（Rust 持久化，缺省内置宝宝）
-  const initialBase = await invoke<string>("current_pet").catch(() => "builtin:/pets/baby");
-  await loadPet(initialBase);
+  // 启动加载上次选中的宠物；一个角色都没有时空窗待命（不重试、不崩溃循环）
+  const initialBase = await invoke<string>("current_pet").catch(() => "");
+  if (initialBase) {
+    await loadPet(initialBase);
+  }
 
   const app = new Application();
   // WebGL 初始化偶发挂起（SecurityError 后 promise 永不结算）——竞速超时保护
@@ -189,14 +192,6 @@ async function main() {
   ]);
   document.body.appendChild(app.canvas);
 
-  const sprite = new AnimatedSprite(frames.idle);
-  sprite.anchor.set(0.5, 1);
-  sprite.position.set(WIN_W / 2, WIN_H - 12);
-  sprite.scale = staticMode ? staticFit : DISPLAY_H / (frames.idle[0]?.height || pet.frameHeight || 208);
-  sprite.animationSpeed = actions.idle.fps / 60;
-  sprite.play();
-  app.stage.addChild(sprite);
-
   const bubbleView = createBubbleView();
   const bubbleC = bubbleView.container;
   const spinner = bubbleView.spinner;
@@ -205,6 +200,27 @@ async function main() {
   let bubbleTimer: ReturnType<typeof setTimeout> | null = null;
   let barFade = 0;
   let barTarget = 0;
+
+  // 角色精灵按需创建：没有任何角色时空窗待命，switch-pet 到来再上屏
+  const ensureSprite = (): AnimatedSprite => {
+    if (!sprite) {
+      const sp = new AnimatedSprite(frames.idle);
+      sp.anchor.set(0.5, 1);
+      sp.onFrameChange = () => {
+        if (mode === "idle" && sprite && sprite.currentFrame === 0) idleCycleCount++;
+      };
+      app.stage.addChild(sp);
+      sprite = sp;
+    }
+    const sp = sprite;
+    sp.visible = true;
+    sp.position.set(WIN_W / 2, WIN_H - 12);
+    sp.scale = staticMode ? staticFit : DISPLAY_H / (frames.idle[0]?.height || pet.frameHeight || 208);
+    sp.animationSpeed = actions.idle.fps / 60;
+    sp.play();
+    app.stage.addChild(bubbleC); // 重新置顶，保持气泡在角色之上
+    return sp;
+  };
 
   let onEnd: (() => void) | null = null;
   // ---- 合成动效引擎（静态图宠物）：程序化变换代替帧动画 ----
@@ -218,23 +234,25 @@ async function main() {
     jumping: { dur: 0.7 },
   };
   const applySynth = (action: string, t: number) => {
-    sprite.y = SYNTH_BASE_Y;
-    sprite.rotation = SYNTH_BASE_ROT;
-    sprite.alpha = 1;
+    const sp = sprite;
+    if (!sp) return;
+    sp.y = SYNTH_BASE_Y;
+    sp.rotation = SYNTH_BASE_ROT;
+    sp.alpha = 1;
     switch (action) {
-      case "idle": sprite.y += Math.sin(t * 2.2) * 2.5; break;                 // 呼吸浮动
-      case "jumping": sprite.y += -Math.abs(Math.sin(Math.PI * t / 0.7)) * 30; break; // 弹跳
-      case "waving": sprite.rotation = Math.sin(t * 9) * 0.13; break;          // 摆动
-      case "failed": sprite.rotation = 0.18; sprite.alpha = 0.75; break;       // 垂头暗淡
-      case "waiting": sprite.rotation = Math.sin(t * 1.4) * 0.06; break;       // 缓晃
+      case "idle": sp.y += Math.sin(t * 2.2) * 2.5; break;                 // 呼吸浮动
+      case "jumping": sp.y += -Math.abs(Math.sin(Math.PI * t / 0.7)) * 30; break; // 弹跳
+      case "waving": sp.rotation = Math.sin(t * 9) * 0.13; break;          // 摆动
+      case "failed": sp.rotation = 0.18; sp.alpha = 0.75; break;           // 垂头暗淡
+      case "waiting": sp.rotation = Math.sin(t * 1.4) * 0.06; break;       // 缓晃
       case "running-left":
       case "running-right":
-      case "running": sprite.rotation = Math.sin(t * 14) * 0.1; break;         // 摇摆跑
-      case "review": sprite.y += Math.sin(t * 3) * 1.2; break;                 // 轻点
-      case "look-up": sprite.y -= 4; break;
-      case "look-down": sprite.y += 4; break;
-      case "look-left": sprite.rotation = -0.1; break;
-      case "look-right": sprite.rotation = 0.1; break;
+      case "running": sp.rotation = Math.sin(t * 14) * 0.1; break;         // 摇摆跑
+      case "review": sp.y += Math.sin(t * 3) * 1.2; break;                 // 轻点
+      case "look-up": sp.y -= 4; break;
+      case "look-down": sp.y += 4; break;
+      case "look-left": sp.rotation = -0.1; break;
+      case "look-right": sp.rotation = 0.1; break;
     }
   };
   app.ticker.add(() => {
@@ -269,28 +287,29 @@ async function main() {
   const play = (action: string) => {
     const def = actions[action];
     if (!def || !frames[action]?.length) return;
-    sprite.textures = frames[action];
-    sprite.scale = staticMode ? staticFit : DISPLAY_H / (frames[action][0]?.height || pet.frameHeight || 208);
-    sprite.y = SYNTH_BASE_Y;
-    sprite.rotation = SYNTH_BASE_ROT;
-    sprite.alpha = 1;
+    const sp = sprite ?? ensureSprite();
+    sp.textures = frames[action];
+    sp.scale = staticMode ? staticFit : DISPLAY_H / (frames[action][0]?.height || pet.frameHeight || 208);
+    sp.y = SYNTH_BASE_Y;
+    sp.rotation = SYNTH_BASE_ROT;
+    sp.alpha = 1;
     if (staticMode) {
-      sprite.stop();
+      sp.stop();
       synthAction = action;
       synthStart = performance.now();
       return;
     }
-    sprite.animationSpeed = def.fps / 60;
-    sprite.loop = def.loop;
-    sprite.currentFrame = 0;
-    sprite.onComplete = () => {
+    sp.animationSpeed = def.fps / 60;
+    sp.loop = def.loop;
+    sp.currentFrame = 0;
+    sp.onComplete = () => {
       if (!def.loop && onEnd) {
         const cb = onEnd;
         onEnd = null;
         cb();
       }
     };
-    sprite.play();
+    sp.play();
   };
 
   const resumeBase = () => {
@@ -323,9 +342,6 @@ async function main() {
 
   // ---- 轮播调度 ----
   let idleCycleCount = 0;
-  sprite.onFrameChange = () => {
-    if (mode === "idle" && sprite.currentFrame === 0) idleCycleCount++;
-  };
 
   async function crawlAbit() {
     const dir = Math.random() < 0.5 ? -1 : 1;
@@ -500,12 +516,24 @@ async function main() {
     }
   });
 
-  // 切换宠物（托盘菜单 / CLI deskbuddy pet <id>）
+  // 切换宠物（托盘菜单 / CLI deskbuddy pet <id>；空 base = 角色已全部删除）
   await listen<{ base: string }>("switch-pet", (e) => {
     void (async () => {
       try {
+        if (!e.payload.base) {
+          if (sprite) sprite.visible = false;
+          actions = {};
+          frames = {};
+          liveState = "idle";
+          mode = "idle";
+          lastLook = "";
+          synthAction = "";
+          showBubble("还没有角色：右键打开设置添加", true);
+          return;
+        }
         await loadPet(e.payload.base);
         if (!frames.idle) throw new Error("该角色缺 idle 动作");
+        ensureSprite();
         mode = "manual";
         liveState = "idle";
         lastLook = "";
@@ -576,21 +604,28 @@ async function main() {
   });
 
   // 首次启动：打招呼期间锁定动作，避免视线跟随覆盖动画使初始化挂起。
-  mode = "manual";
-  await sleep(600);
-  await playOnce("waving");
-  mode = "idle";
-  play("idle");
-  idleCycleCount = 0;
+  if (initialBase) {
+    mode = "manual";
+    await sleep(600);
+    await playOnce("waving");
+    mode = "idle";
+    play("idle");
+    idleCycleCount = 0;
+  } else {
+    (window as any).__beacon?.("no-pet", "没有可用角色，空窗待命");
+    showBubble("还没有角色：右键打开设置添加", true);
+  }
   sessionStorage.setItem("db-boot-tries", "0");
   (window as any).__dbReady?.(); // 通知看门狗：前端已就绪
 
   // 渲染心跳：WebGL 上下文假死自检（就绪但空屏的第四种死法），死了自动重载
   const gl = (app.renderer as any).gl as WebGLRenderingContext | undefined;
   const cv = app.canvas as HTMLCanvasElement;
+  // 闭包内赋值的变量会被流分析窄化，读状态前先恢复完整类型
+  const spState = sprite as AnimatedSprite | null;
   (window as any).__beacon?.(
     "render-state",
-    `type=${(app.renderer as any).type ?? "?"} ctxLost=${gl?.isContextLost?.() ?? "?"} textures=${Object.keys(frames).length} spriteVisible=${sprite.visible} mode=${mode} canvasInDom=${document.body.contains(cv)} canvasSize=${cv.width}x${cv.height} css=${cv.style.width}x${cv.style.height} children=${app.stage.children.length} spriteScale=${sprite.scale?.x ?? "?"} spritePos=${sprite.x},${sprite.y}`,
+    `type=${(app.renderer as any).type ?? "?"} ctxLost=${gl?.isContextLost?.() ?? "?"} textures=${Object.keys(frames).length} spriteVisible=${spState?.visible ?? "?"} mode=${mode} canvasInDom=${document.body.contains(cv)} canvasSize=${cv.width}x${cv.height} css=${cv.style.width}x${cv.style.height} children=${app.stage.children.length} spriteScale=${spState?.scale?.x ?? "?"} spritePos=${spState ? `${spState.x},${spState.y}` : "?"}`,
   );
   // 每帧渲染守护：renderer.render 抛错则上报并自愈重载
   let renderErrs = 0;

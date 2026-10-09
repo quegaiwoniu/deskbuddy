@@ -57,10 +57,8 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 pub fn start_codex_watcher(app: tauri::AppHandle) {
     std::thread::spawn(move || {
-        let Some(home) = std::env::var_os("HOME") else {
-            return;
-        };
-        let root = PathBuf::from(home).join(".codex/sessions");
+        let home = crate::paths::home_dir();
+        let root = home.join(".codex/sessions");
         let mut sessions: HashMap<PathBuf, WatchedSession> = HashMap::new();
         let mut startup = true;
         let mut displayed: Option<(String, Value)> = None;
@@ -137,11 +135,9 @@ pub fn start_codex_watcher(app: tauri::AppHandle) {
 }
 pub fn start_zcode_watcher(app: tauri::AppHandle) {
     std::thread::spawn(move || {
-        let Some(home) = std::env::var_os("HOME") else {
-            return;
-        };
-        let root = PathBuf::from(&home).join(".zcode/cli/rollout");
-        let log = PathBuf::from(&home).join(".config/deskbuddy/watcher.log");
+        let home = crate::paths::home_dir();
+        let root = home.join(".zcode/cli/rollout");
+        let log = crate::paths::config_dir().join("watcher.log");
         heartbeat(&log, "watcher 启动");
         let mut poll = 0u32;
         let mut sessions: HashMap<PathBuf, WatchedSession> = HashMap::new();

@@ -1,10 +1,10 @@
 # 参与贡献
 
-欢迎提交问题和改进。报告问题时请说明桌伴版本、macOS 版本、操作步骤、预期结果和实际结果；日志与截图请先移除私人信息。
+欢迎提交问题和改进。报告问题时请说明桌伴版本、系统版本、操作步骤、预期结果和实际结果；日志与截图请先移除私人信息。
 
 ## 本地开发
 
-目前主要支持 macOS Apple Silicon。安装 Node.js、Rust 和 Xcode Command Line Tools 后运行：
+支持 macOS Apple Silicon 与 Windows 10/11 x64。安装 Node.js、Rust（Windows 需 MSVC 工具链，macOS 需 Xcode Command Line Tools）后运行：
 
 ```sh
 npm ci

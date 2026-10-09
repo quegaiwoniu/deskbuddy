@@ -5,8 +5,7 @@ use crate::config::{self, BehaviorConfig, EventsConfig};
 use tauri::{Emitter, Manager};
 
 fn config_dir() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    std::path::PathBuf::from(home).join(".config/deskbuddy")
+    crate::paths::config_dir()
 }
 
 #[tauri::command]
@@ -53,30 +52,34 @@ pub struct PetEntry {
     pub name: String,
     pub current: bool,
     pub draft: bool,
+    pub builtin: bool,
 }
 
 #[tauri::command]
-pub fn list_pets() -> Vec<PetEntry> {
+pub fn list_pets(app: tauri::AppHandle) -> Vec<PetEntry> {
     let cur = std::fs::read_to_string(config_dir().join("current-pet"))
         .map(|s| s.trim().to_string())
-        .unwrap_or_else(|_| "baby".into());
-    let mut out = vec![PetEntry { id: "baby".into(), name: "宝宝".into(), current: cur == "baby", draft: false }];
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for (id, name) in config::scan_builtin_pets(&app) {
+        out.push(PetEntry { current: cur == id, id, name, draft: false, builtin: true });
+    }
     for (id, name) in config::scan_external_pets() {
         let draft = config_dir().join("pets").join(&id).join("raw").is_dir()
             && std::fs::read_to_string(config_dir().join("pets").join(&id).join("pet.json"))
                 .map(|s| s.contains("\"draft\": true")).unwrap_or(false);
-        out.push(PetEntry { current: cur == id, id, name, draft });
+        out.push(PetEntry { current: cur == id, id, name, draft, builtin: false });
     }
     out
 }
 
 #[tauri::command]
 pub fn select_pet(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let entry = list_pets().into_iter().find(|p| p.id == id).ok_or("角色不存在")?;
+    let entry = list_pets(app.clone()).into_iter().find(|p| p.id == id).ok_or("角色不存在")?;
     if entry.draft {
         return Err("草稿尚未组装，不能使用".into());
     }
-    match config::resolve_pet_base(&id) {
+    match config::resolve_pet_base(&app, &id) {
         Some(base) => {
             config::set_current_pet(&id);
             let _ = app.emit("switch-pet", serde_json::json!({"base": base}));
@@ -114,15 +117,44 @@ pub fn open_settings(app: tauri::AppHandle) {
 }
 
 /// 在访达中打开外部宠物包目录
+/// 在系统文件管理器中打开目录（macOS open / Windows explorer）
+fn open_folder_in_file_manager(path: &std::path::Path) {
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(path).spawn();
+    #[cfg(target_os = "windows")]
+    {
+        // explorer 解析不了混合分隔符路径（会静默打开「文档」），统一转反斜杠
+        let win_path = path.to_string_lossy().replace('/', "\\");
+        let _ = std::process::Command::new("explorer").arg(&win_path).spawn();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = path;
+}
+
+/// 在文件管理器中定位该路径（macOS open -R / Windows explorer /select）
+#[allow(unused_variables)]
+fn reveal_in_file_manager(path: &std::path::Path) {
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg("-R").arg(path).spawn();
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let win_path = path.to_string_lossy().replace('/', "\\");
+        // raw_arg 避免整段被引号包裹；explorer 要求 /select,"路径" 形式（路径含空格也安全）
+        let mut cmd = std::process::Command::new("explorer");
+        let _ = cmd.raw_arg(format!("/select,\"{win_path}\"")).spawn();
+    }
+}
+
 #[tauri::command]
 pub fn open_pets_folder() {
     let dir = config_dir().join("pets");
     let _ = std::fs::create_dir_all(&dir);
-    let _ = std::process::Command::new("open").arg(dir).spawn();
+    open_folder_in_file_manager(&dir);
 }
 
 fn deletable_pet_dir(root: &std::path::Path, id: &str) -> Result<std::path::PathBuf, String> {
-    if id == "baby" || id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return Err("不可删除此角色".into());
     }
     let dir = root.join(id);
@@ -133,23 +165,34 @@ fn deletable_pet_dir(root: &std::path::Path, id: &str) -> Result<std::path::Path
     Ok(dir)
 }
 
+/// 从加载基址反解宠物 id（builtin:/pets/<id> 或 ext: 路径末段），用于持久化回退选择
+fn pet_id_from_base(base: &str) -> Option<String> {
+    if let Some(rest) = base.strip_prefix("builtin:/pets/") {
+        return (!rest.is_empty()).then(|| rest.to_string());
+    }
+    let last = base.strip_prefix("ext:")?.rsplit(['\\', '/']).next()?;
+    (!last.is_empty()).then(|| last.to_string())
+}
+
 #[tauri::command]
 pub fn delete_pet(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    if config::resolve_pet_base(&app, &id)
+        .map(|b| b.starts_with("builtin:"))
+        .unwrap_or(false)
+    {
+        return Err("内置角色不可删除".into());
+    }
     let dir = deletable_pet_dir(&pets_dir(), &id)?;
     let cur = std::fs::read_to_string(config_dir().join("current-pet")).unwrap_or_default();
     let was_current = cur.trim() == id;
+    std::fs::remove_dir_all(dir).map_err(|e| format!("删除失败：{e}"))?;
     if was_current {
-        config::set_current_pet("baby");
-        let _ = app.emit("switch-pet", serde_json::json!({"base": "builtin:/pets/baby"}));
-    }
-    if let Err(e) = std::fs::remove_dir_all(dir) {
-        if was_current {
-            config::set_current_pet(&id);
-            if let Some(base) = config::resolve_pet_base(&id) {
-                let _ = app.emit("switch-pet", serde_json::json!({"base": base}));
-            }
+        // 已删当前角色：回退到第一个可用角色（可能一个不剩 → 前端空窗待命）
+        let base = config::current_pet_base(&app);
+        if let Some(new_id) = pet_id_from_base(&base) {
+            config::set_current_pet(&new_id);
         }
-        return Err(format!("删除失败：{e}"));
+        let _ = app.emit("switch-pet", serde_json::json!({"base": base}));
     }
     let _ = app.emit("pets-changed", ());
     crate::refresh_tray_menu(&app);
@@ -159,7 +202,7 @@ pub fn delete_pet(app: tauri::AppHandle, id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn show_pet_in_folder(id: String) -> Result<(), String> {
     let dir = deletable_pet_dir(&pets_dir(), &id)?;
-    std::process::Command::new("open").arg("-R").arg(dir).spawn().map_err(|e| e.to_string())?;
+    reveal_in_file_manager(&dir);
     Ok(())
 }
 
@@ -167,7 +210,7 @@ pub fn show_pet_in_folder(id: String) -> Result<(), String> {
 pub fn open_pet_raw_folder(id: String) -> Result<(), String> {
     let dir = deletable_pet_dir(&pets_dir(), &id)?.join("raw");
     if !dir.is_dir() { return Err("该角色没有待组装素材文件夹".into()); }
-    std::process::Command::new("open").arg(dir).spawn().map_err(|e| e.to_string())?;
+    open_folder_in_file_manager(&dir);
     Ok(())
 }
 
@@ -306,7 +349,7 @@ fn available_pet_id(root: &std::path::Path, name: &str) -> String {
     let base = pet_id_from(name);
     let mut id = base.clone();
     let mut suffix = 2;
-    while id == "baby" || root.join(&id).exists() {
+    while root.join(&id).exists() {
         id = format!("{base}-{suffix}");
         suffix += 1;
     }
@@ -404,6 +447,44 @@ fn prompt_pack(name: &str, desc: &str) -> String {
 "#)
 }
 
+/// 把 raw/ 中的 GIF 拆成 frames/<动作>/NN.png（对齐 split_pet.sh 的动作名规则）
+fn split_gifs_to_frames(raw: &std::path::Path, frames_root: &std::path::Path) -> Result<(), String> {
+    use image::AnimationDecoder;
+    let entries = std::fs::read_dir(raw).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_gif = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("gif"))
+            .unwrap_or(false);
+        if !is_gif {
+            continue;
+        }
+        let mut action = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+        for suffix in ["-source-resolution", "-hd", "-source"] {
+            if let Some(stripped) = action.strip_suffix(suffix) {
+                action = stripped.to_string();
+            }
+        }
+        if action.is_empty() {
+            continue;
+        }
+        let file = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+        let decoder =
+            image::codecs::gif::GifDecoder::new(std::io::BufReader::new(file))
+                .map_err(|e| e.to_string())?;
+        let out_dir = frames_root.join(&action);
+        std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
+        for (i, frame) in decoder.into_frames().enumerate() {
+            let frame = frame.map_err(|e| e.to_string())?;
+            let out = out_dir.join(format!("{:02}.png", i));
+            frame.buffer().save(&out).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 /// 组装：raw/ 里的 GIF 拆帧 → 写完整 x-actions → 撤销草稿标记
 #[tauri::command]
 pub fn assemble_pet(app: tauri::AppHandle, id: String) -> Result<(), String> {
@@ -412,17 +493,8 @@ pub fn assemble_pet(app: tauri::AppHandle, id: String) -> Result<(), String> {
     if !raw.is_dir() || std::fs::read_dir(&raw).map(|m| m.count()).unwrap_or(0) == 0 {
         return Err("raw/ 目录为空：请先把生成的 GIF/PNG 放进去".into());
     }
-    // GIF → 帧
-    let out = std::process::Command::new("bash")
-        .arg("-c")
-        .arg(include_str!("../../scripts/split_pet.sh"))
-        .arg("split_pet.sh")
-        .arg(&dir)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(format!("拆帧失败: {}", String::from_utf8_lossy(&out.stderr)));
-    }
+    // GIF → 帧（Rust 实现，跨平台；不依赖 bash/Swift）
+    split_gifs_to_frames(&raw, &dir.join("frames")).map_err(|e| format!("拆帧失败: {e}"))?;
     // PNG 直放 raw/<动作>/ 的情况：搬到 frames/
     for entry in std::fs::read_dir(&raw).into_iter().flatten().flatten() {
         let p = entry.path();
@@ -500,7 +572,6 @@ mod tests {
         std::fs::create_dir_all(root.join("cat")).unwrap();
         std::fs::write(root.join("cat/pet.json"), "{}").unwrap();
         assert_eq!(deletable_pet_dir(&root, "cat").unwrap(), root.join("cat"));
-        assert!(deletable_pet_dir(&root, "baby").is_err());
         assert!(deletable_pet_dir(&root, "../cat").is_err());
         assert!(deletable_pet_dir(&root, "absent").is_err());
         let _ = std::fs::remove_dir_all(root);
@@ -512,8 +583,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("cat")).unwrap();
         assert_eq!(available_pet_id(&root, "cat"), "cat-2");
-        assert_eq!(available_pet_id(&root, "baby"), "baby-2");
-        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

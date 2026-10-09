@@ -3,8 +3,7 @@
 use std::io::{Read, Write};
 
 fn config_dir() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    std::path::PathBuf::from(home).join(".config/deskbuddy")
+    crate::paths::config_dir()
 }
 
 fn token() -> String {

@@ -15,7 +15,7 @@ type Behavior = {
   sound: { enabled: boolean };
 };
 type EventMapping = { mood: Record<string, number>; action?: string | null; bubble?: string | null; enabled: boolean };
-type PetEntry = { id: string; name: string; current: boolean; draft: boolean };
+type PetEntry = { id: string; name: string; current: boolean; draft: boolean; builtin: boolean };
 type Page = "pets" | "behavior" | "events" | "general" | "about";
 type CreateMode = "image" | "draft" | "import" | null;
 
@@ -30,6 +30,8 @@ const eventNames: [string, string, string][] = [
 ];
 let page: Page = "pets";
 let appVersion = "";
+// 窗口层级为 macOS 专用功能（NSWindow level），其他平台隐藏
+const isMac = /Macintosh|Mac OS X/.test(navigator.userAgent);
 const updater = new UpdateController({
   check: () => check({ timeout: 20000 }),
   restart: relaunch,
@@ -204,13 +206,13 @@ function petRow(p: PetEntry): HTMLElement {
   const copy = el("div", "pet-copy");
   const name = el("span", "pet-name", p.name);
   copy.append(name);
-  if (p.id === "baby") copy.append(el("span", "badge", "内置"));
+  if (p.builtin) copy.append(el("span", "badge", "内置"));
   if (p.current) copy.append(el("span", "badge", "当前"));
   if (p.draft) copy.append(el("span", "badge", "草稿"));
   const actions = el("div", "pet-actions");
   if (p.draft) actions.append(button("继续制作", () => { createMode = null; deleteId = null; draftId = p.id; render(); }));
   else if (!p.current) actions.append(button("使用", () => void petAction(() => invoke("select_pet", { id: p.id }), `已切换到「${p.name}」`)));
-  if (p.id !== "baby") {
+  if (!p.builtin) {
     const more = button("···", () => { openMenu = openMenu === p.id ? null : p.id; render(); }, "ghost more");
     more.setAttribute("aria-label", `${p.name}的更多操作`);
     more.setAttribute("aria-expanded", String(openMenu === p.id));
@@ -218,7 +220,7 @@ function petRow(p: PetEntry): HTMLElement {
     if (openMenu === p.id) {
       const menu = el("div", "popover");
       menu.append(
-        button("在访达中显示", () => void petAction(() => invoke("show_pet_in_folder", { id: p.id }), "已在访达中显示")),
+        button("在文件夹中显示", () => void petAction(() => invoke("show_pet_in_folder", { id: p.id }), "已在文件夹中显示")),
         button("删除角色…", () => { openMenu = null; deleteId = p.id; render(); }, "danger"),
       );
       row.append(menu);
@@ -230,7 +232,7 @@ function petRow(p: PetEntry): HTMLElement {
 function deleteConfirm(p: PetEntry): HTMLElement {
   const c = el("div", "confirm");
   c.append(el("strong", "", `删除「${p.name}」？`));
-  c.append(el("div", "sub", p.current ? "会先切换到内置宝宝，然后删除该角色的本地文件。此操作无法撤销。" : "该角色的本地文件会被删除。此操作无法撤销。"));
+  c.append(el("div", "sub", p.current ? "会先切换到其他可用角色（或暂时空窗），然后删除该角色的本地文件。此操作无法撤销。" : "该角色的本地文件会被删除。此操作无法撤销。"));
   const actions = el("div", "inline-actions");
   const remove = button("确认删除", () => void petAction(() => invoke("delete_pet", { id: p.id }), `已删除「${p.name}」`), "danger");
   remove.disabled = busy;
@@ -271,7 +273,7 @@ function renderPets() {
     ready.append(petRow(p));
     if (deleteId === p.id) ready.append(deleteConfirm(p));
   }
-  if (pets.every(p => p.id === "baby")) ready.append(el("p", "empty", "还没有自定义角色。点击右上角添加。"));
+  if (pets.length === 0) ready.append(el("p", "empty", "还没有可用角色。点击右上角添加。"));
   app.append(ready);
   const drafts = pets.filter(p => p.draft);
   if (drafts.length) {
@@ -374,25 +376,27 @@ function renderEvents() {
 function renderGeneral() {
   app.append(header("启动与显示"), sectionTitle("启动"));
   const c = panel();
-  c.append(checkboxRow("开机自启", "登录 macOS 后自动显示桌伴", autostart, async v => {
+  c.append(checkboxRow("开机自启", "登录系统后自动显示桌伴", autostart, async v => {
     await invoke("set_autostart", { enabled: v }); autostart = v;
   }));
   app.append(c, sectionTitle("高级"));
   const d = panel();
-  const levels = el("div", "controls");
-  const { row, status } = settingRow("窗口层级", "桌宠被其他窗口遮住时调整", levels);
-  for (const [label, level] of [["标准", 25], ["高", 101], ["最高", 1000]] as const) {
-    const b = button(label, () => {
-      b.disabled = true;
-      statusText(status, "应用中…");
-      void invoke("set_window_level", { level })
-        .then(() => statusText(status, `已设为${label}`))
-        .catch(e => statusText(status, String(e), true))
-        .finally(() => { b.disabled = false; });
-    });
-    levels.append(b);
+  if (isMac) {
+    const levels = el("div", "controls");
+    const { row, status } = settingRow("窗口层级", "桌宠被其他窗口遮住时调整", levels);
+    for (const [label, level] of [["标准", 25], ["高", 101], ["最高", 1000]] as const) {
+      const b = button(label, () => {
+        b.disabled = true;
+        statusText(status, "应用中…");
+        void invoke("set_window_level", { level })
+          .then(() => statusText(status, `已设为${label}`))
+          .catch(e => statusText(status, String(e), true))
+          .finally(() => { b.disabled = false; });
+      });
+      levels.append(b);
+    }
+    d.append(row);
   }
-  d.append(row);
   app.append(d);
 }
 function renderAbout() {

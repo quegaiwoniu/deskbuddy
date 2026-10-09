@@ -7,6 +7,7 @@ mod config;
 mod drag;
 mod mood;
 mod notify;
+mod paths;
 mod server;
 mod session;
 mod tail;
@@ -27,10 +28,10 @@ use tauri::{
 /// 右键动作菜单句柄（随宠物切换动态重建）
 struct PetMenu(std::sync::Mutex<Menu<tauri::Wry>>);
 
-/// 当前宠物基址（启动时前端询问）
+/// 当前宠物基址（启动时前端询问；没有任何角色时返回空串）
 #[tauri::command]
-fn current_pet() -> String {
-    config::current_pet_base()
+fn current_pet(app: tauri::AppHandle) -> String {
+    config::current_pet_base(&app)
 }
 
 /// 前端黑匣子（IPC 通道，绕开混合内容拦截）
@@ -76,18 +77,31 @@ fn build_tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let sep = PredefinedMenuItem::separator(app)?;
     let settings = MenuItem::with_id(app, "open-settings", "设置…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "app-quit", "退出 DeskBuddy", true, None::<&str>)?;
-    let entries = settings_cmd::list_pets();
-    let current = entries.iter().find(|p| p.current).map(|p| p.id.clone()).unwrap_or_else(|| "baby".into());
-    let baby = MenuItem::with_id(app, "pet-baby", if current == "baby" { "✓ 宝宝（内置）" } else { "宝宝（内置）" }, true, None::<&str>)?;
-    let mut items = vec![baby];
-    for pet in entries.into_iter().filter(|p| p.id != "baby" && !p.draft) {
-        let label = if pet.id == current { format!("✓ {}", pet.name) } else { pet.name };
-        items.push(MenuItem::with_id(app, &format!("pet-{}", pet.id), &label, true, None::<&str>)?);
+    let entries = settings_cmd::list_pets(app.clone());
+    let current = entries.iter().find(|p| p.current).map(|p| p.id.clone()).unwrap_or_default();
+    let items: Vec<MenuItem<tauri::Wry>> = entries
+        .into_iter()
+        .filter(|p| !p.draft)
+        .map(|pet| {
+            let suffix = if pet.builtin { "（内置）" } else { "" };
+            let label = if pet.id == current { format!("✓ {}{}", pet.name, suffix) } else { format!("{}{}", pet.name, suffix) };
+            MenuItem::with_id(app, &format!("pet-{}", pet.id), &label, true, None::<&str>)
+        })
+        .collect::<tauri::Result<_>>()?;
+    let mut all: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&toggle, &status_item, &sep];
+    let pets = (!items.is_empty())
+        .then(|| -> tauri::Result<Submenu<tauri::Wry>> {
+            let refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+                items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect();
+            Submenu::with_id_and_items(app, "pets", "切换角色", true, &refs)
+        })
+        .transpose()?;
+    if let Some(p) = pets.as_ref() {
+        all.push(p);
     }
-    let refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
-        items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect();
-    let pets = Submenu::with_id_and_items(app, "pets", "切换角色", true, &refs)?;
-    Menu::with_items(app, &[&toggle, &status_item, &sep, &pets, &settings, &quit])
+    all.push(&settings);
+    all.push(&quit);
+    Menu::with_items(app, &all)
 }
 
 fn action_label(action: &str) -> &'static str {
@@ -109,22 +123,24 @@ fn action_label(action: &str) -> &'static str {
 
 /// 读取当前宠物的动作名列表（跳过 look-* 视线态，它们由悬停驱动）
 fn current_pet_actions(app: &tauri::AppHandle) -> Vec<String> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let saved = std::fs::read_to_string(
-        std::path::Path::new(&home).join(".config/deskbuddy/current-pet"),
-    )
-    .map(|s| s.trim().to_string())
-    .unwrap_or_else(|_| "baby".into());
-    let path = if saved == "baby" {
-        app.path().resource_dir().ok().map(|r| r.join("pets/baby/pet.json"))
-    } else {
-        Some(
-            std::path::Path::new(&home)
-                .join(".config/deskbuddy/pets")
-                .join(&saved)
-                .join("pet.json"),
-        )
-    };
+    let cfg = paths::config_dir();
+    let saved = std::fs::read_to_string(cfg.join("current-pet"))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if saved.is_empty() {
+        return vec![];
+    }
+    // 内置角色在打包资源目录，外部角色在配置目录
+    let path = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|r| r.join("pets").join(&saved).join("pet.json"))
+        .filter(|p| p.is_file())
+        .or_else(|| {
+            let p = cfg.join("pets").join(&saved).join("pet.json");
+            p.is_file().then_some(p)
+        });
     let Some(path) = path else { return vec![] };
     std::fs::read_to_string(path)
         .ok()
@@ -185,7 +201,7 @@ fn read_pet_file(app: tauri::AppHandle, rel: String) -> Result<String, String> {
     if clean.contains("..") {
         return Err("非法路径".into());
     }
-    // 打包内资源（builtin: /pets/baby/... → 资源目录）
+    // 打包内资源（builtin: /pets/<id>/... → 资源目录）
     if let Ok(base) = app.path().resource_dir() {
         let p = base.join(clean);
         if p.is_file() {
@@ -193,8 +209,7 @@ fn read_pet_file(app: tauri::AppHandle, rel: String) -> Result<String, String> {
         }
     }
     // 外部宠物目录
-    let home = std::env::var("HOME").unwrap_or_default();
-    let p = std::path::Path::new(&home).join(".config/deskbuddy").join(clean);
+    let p = paths::config_dir().join(clean);
     if p.is_file() {
         return file_to_data_url(&p);
     }
@@ -234,8 +249,7 @@ fn base64_encode(data: &[u8]) -> String {
 }
 
 fn config_dir_has(name: &str) -> bool {
-    let home = std::env::var("HOME").unwrap_or_default();
-    std::path::Path::new(&home).join(".config/deskbuddy").join(name).exists()
+    paths::config_dir().join(name).exists()
 }
 
 pub fn run() {
@@ -287,7 +301,7 @@ pub fn run() {
             let _ = win.set_size(tauri::LogicalSize::new(352.0, 216.0));
 
             // 钳制窗口入屏（window-state 异步恢复位置，三连发覆盖时序）
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             {
                 window_patch::clamp_window(&win);
                 let w1 = win.clone();
@@ -315,8 +329,10 @@ pub fn run() {
                     let _ = win.set_always_on_top(false);
                     eprintln!("[safe-mode] 跳过窗口补丁");
                 }
-                server::start_hover_observer(win.clone());
             }
+            // 悬停观察：非激活窗口收不到完整鼠标事件，双平台都用原生全局轮询
+            let _ = safe_mode;
+            server::start_hover_observer(win.clone());
 
             // M2：行为/事件配置（热重载）+ 心情状态机 + 本地事件服务器
             config::init_and_watch(app.handle().clone());

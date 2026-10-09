@@ -3,8 +3,7 @@
 use std::path::PathBuf;
 
 fn sounds_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".config/deskbuddy/sounds")
+    crate::paths::config_dir().join("sounds")
 }
 
 /// 写 16bit PCM 单声道 WAV
@@ -96,10 +95,32 @@ pub fn play(event: &str) {
     };
     let path = sounds_dir().join(name);
     if path.exists() {
-        let _ = std::process::Command::new("afplay")
-            .arg(&path)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn();
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("afplay")
+                .arg(&path)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+        }
+        #[cfg(target_os = "windows")]
+        {
+            play_wav_windows(&path);
+        }
+    }
+}
+
+/// WinMM PlaySound 异步播放（无素材依赖、无需外部进程）
+#[cfg(target_os = "windows")]
+fn play_wav_windows(path: &std::path::Path) {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_FILENAME};
+    let wide: Vec<u16> = std::ffi::OsStr::new(path)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let flags = SND_FILENAME | SND_ASYNC;
+    unsafe {
+        PlaySoundW(wide.as_ptr(), std::ptr::null_mut(), flags);
     }
 }

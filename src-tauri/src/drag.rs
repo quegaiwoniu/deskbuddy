@@ -117,5 +117,69 @@ fn drag_tick(win: tauri::WebviewWindow) {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn drag_tick(_win: tauri::WebviewWindow) {}
+
+/// Windows：全局光标（物理像素，y 向下）驱动窗口跟随，工作区钳制 + 方向检测
+#[cfg(target_os = "windows")]
+fn drag_tick(win: tauri::WebviewWindow) {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    let mut guard = DRAG_STATE.lock().unwrap();
+    if !DRAGGING.load(Ordering::SeqCst) {
+        return;
+    }
+    if guard.is_none() {
+        *guard = Some(DragState {
+            offset_x: 0.0,
+            offset_y: 0.0,
+            prev_x: f64::NAN,
+            last_dir: 0,
+        });
+    }
+    let Some(st) = guard.as_mut() else { return };
+    let Ok(pos) = win.outer_position() else { return };
+    let mut point = POINT { x: 0, y: 0 };
+    if unsafe { GetCursorPos(&mut point) } == 0 {
+        return;
+    }
+    let (mx, my) = (point.x as f64, point.y as f64);
+    if st.prev_x.is_nan() {
+        // 首帧：记录鼠标相对窗口的偏移，之后窗口跟随鼠标
+        st.offset_x = mx - pos.x as f64;
+        st.offset_y = my - pos.y as f64;
+        st.prev_x = pos.x as f64;
+    }
+    let scale = win.scale_factor().unwrap_or(1.0) as f64;
+    let (w, h) = match win.outer_size() {
+        Ok(s) => (s.width as f64, s.height as f64),
+        Err(_) => (352.0 * scale, 216.0 * scale),
+    };
+    let mut x = mx - st.offset_x;
+    let mut y = my - st.offset_y;
+    // 钳制：按光标所在屏选工作区（多屏拖拽的关键），宝宝本体条带（窗口中线±56pt）
+    // 保持工作区内；窗口透明留白允许出屏。光标拖过屏幕边界 → 钳制区随之切换。
+    if let Some((vx, vy, vw, vh)) = crate::window_patch::work_area_near(point.x, point.y) {
+        let strip = 56.0 * scale;
+        let mid = w / 2.0;
+        let min_x = vx as f64 - (mid - strip);
+        let max_x = vx as f64 + vw as f64 - (mid + strip);
+        if max_x >= min_x {
+            x = x.clamp(min_x, max_x);
+        }
+        y = y.clamp(vy as f64, vy as f64 + vh as f64 - h);
+    }
+    let x = x.round() as i32;
+    let y = y.round() as i32;
+    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    let dx = x as f64 - st.prev_x;
+    st.prev_x = x as f64;
+    if dx.abs() > 6.0 * scale {
+        let dir: i8 = if dx < 0.0 { -1 } else { 1 };
+        if dir != st.last_dir {
+            st.last_dir = dir;
+            let _ = win.emit("drag-dir", if dir < 0 { "left" } else { "right" });
+        }
+    }
+}
