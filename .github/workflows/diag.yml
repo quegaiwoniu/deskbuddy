@@ -20,8 +20,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           JOB_ID: ${{ inputs.job_id }}
         run: |
-          set -e
-          gh api "repos/${{ github.repository }}/actions/jobs/$JOB_ID/logs" > job-log.txt
+          set -eux
+          API="https://api.github.com/repos/${{ github.repository }}/actions/jobs/$JOB_ID/logs"
+          LOC=$(curl -s -o /dev/null -w '%{redirect_url}' -H "Authorization: Bearer $GH_TOKEN" "$API")
+          test -n "$LOC"
+          curl -sL "$LOC" -o job-log.txt
           wc -c job-log.txt
       - name: Commit log to diagnostics branch
         run: |
