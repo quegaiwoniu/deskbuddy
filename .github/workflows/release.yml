@@ -52,7 +52,10 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Apple 签名配置后按需加回；不存在的 Secret 会以空串传入导致证书导入失败
+          # 配置 Apple 签名后，在下方按需加回（不存在的 Secret 会以空串传入，
+          # tauri 打包器会因导入空证书而失败，因此默认不传）：
+          # APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY
+          # APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -122,11 +125,12 @@ jobs:
           path: release/windows
       - name: Prepare update manifest
         run: |
+          find release -type f | sort
           python3 scripts/update_manifest.py \
             --tag "$RELEASE_TAG" \
             --repository "$GITHUB_REPOSITORY" \
-            --archive release/macos/DeskBuddy.app.tar.gz \
-            --signature release/macos/DeskBuddy.app.tar.gz.sig \
+            --archive release/macos/macos/DeskBuddy.app.tar.gz \
+            --signature release/macos/macos/DeskBuddy.app.tar.gz.sig \
             --windows-setup "release/windows/DeskBuddy_${RELEASE_TAG#v}_x64-setup.exe" \
             --windows-signature "release/windows/DeskBuddy_${RELEASE_TAG#v}_x64-setup.exe.sig" \
             --notes "docs/releases/$RELEASE_TAG.md" \
@@ -138,9 +142,9 @@ jobs:
           gh release create "$RELEASE_TAG" --draft --verify-tag \
             --title "DeskBuddy $RELEASE_TAG" --notes-file "docs/releases/$RELEASE_TAG.md"
           gh release upload "$RELEASE_TAG" \
-            release/macos/*.dmg \
-            release/macos/*.tar.gz \
-            release/macos/*.sig \
+            release/macos/dmg/*.dmg \
+            release/macos/macos/*.tar.gz \
+            release/macos/macos/*.sig \
             release/windows/*-setup.exe \
             release/windows/*.sig \
             release/latest.json
