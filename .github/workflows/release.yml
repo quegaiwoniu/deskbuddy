@@ -30,7 +30,8 @@ jobs:
           node-version: 22
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
-        targets: aarch64-apple-darwin
+        with:
+          targets: aarch64-apple-darwin
       - name: Verify signing configuration
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
