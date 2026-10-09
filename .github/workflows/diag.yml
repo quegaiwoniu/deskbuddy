@@ -1,0 +1,33 @@
+name: Diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "Failed job id whose log should be dumped"
+        required: true
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch failed job log
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_ID: ${{ inputs.job_id }}
+        run: |
+          set -e
+          gh api "repos/${{ github.repository }}/actions/jobs/$JOB_ID/logs" > job-log.txt
+          wc -c job-log.txt
+      - name: Commit log to diagnostics branch
+        run: |
+          git config user.name "diagnostics-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -b diag
+          git add job-log.txt
+          git commit -m "diag: dump job ${{ inputs.job_id }} log"
+          git push -f origin HEAD:refs/heads/diag
