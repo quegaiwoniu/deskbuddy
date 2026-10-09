@@ -22,7 +22,8 @@ pub fn config_dir() -> std::path::PathBuf {
     home_dir().join(".config").join("deskbuddy")
 }
 
-#[cfg(test)]
+// 断言依据是 Windows 语义（正斜杠会让 explorer 失败）；Unix 的本机分隔符就是 /
+#[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::*;
 
