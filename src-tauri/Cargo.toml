@@ -1,6 +1,6 @@
 [package]
 name = "deskbuddy"
-version = "0.7.0"
+version = "0.7.1"
 description = "桌伴——感知编码事件的桌面伙伴"
 edition = "2021"
 

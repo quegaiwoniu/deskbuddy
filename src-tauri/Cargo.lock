@@ -651,7 +651,7 @@ dependencies = [
 
 [[package]]
 name = "deskbuddy"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "image",
  "objc2 0.5.2",

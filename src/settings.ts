@@ -213,7 +213,8 @@ function petRow(p: PetEntry): HTMLElement {
   if (p.draft) actions.append(button("继续制作", () => { createMode = null; deleteId = null; draftId = p.id; render(); }));
   else if (!p.current) actions.append(button("使用", () => void petAction(() => invoke("select_pet", { id: p.id }), `已切换到「${p.name}」`)));
   if (!p.builtin) {
-    const more = button("···", () => { openMenu = openMenu === p.id ? null : p.id; render(); }, "ghost more");
+    const more = button("", () => { openMenu = openMenu === p.id ? null : p.id; render(); }, "ghost more");
+    more.append(el("i"), el("i"), el("i")); // CSS 圆点省略号，避免字体度量差异导致溢出
     more.setAttribute("aria-label", `${p.name}的更多操作`);
     more.setAttribute("aria-expanded", String(openMenu === p.id));
     actions.append(more);
